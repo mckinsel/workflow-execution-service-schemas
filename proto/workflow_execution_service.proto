@@ -78,8 +78,9 @@ message workflow_request {
   string workflow_descriptor = 1;
 
   // REQUIRED
-  // The workflow parameterization document (typically a JSON file), includes all parameterizations for the workflow including input and output file locations
-  google.protobuf.Struct workflow_params = 2;
+  // The workflow parameterization document (typically a JSON string), includes all parameterizations for
+  // the workflow including input and output file locations
+  string workflow_params = 2;
 
   // REQUIRED
   // The workflow descriptor type, must be "CWL" or "WDL" currently (or another alternative supported by this WES instance)
@@ -161,7 +162,7 @@ message service_info {
 message workflow_desc {
   // REQUIRED
   string workflow_id  = 1;
-  
+
   // REQUIRED
   state state = 2;
 }
