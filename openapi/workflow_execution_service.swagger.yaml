@@ -1,4 +1,4 @@
-basePath: /ga4gh/wes/v1
+basePath: '/ga4gh/wes/v1'
 swagger: '2.0'
 info:
   title: Workflow Execution Service
@@ -14,8 +14,7 @@ paths:
   /service-info:
     get:
       summary: |-
-        Get information about Workflow Execution Service.  May include information related (but
-        not limited to) the workflow descriptor formats, versions supported, the WES API versions supported, and information about general the service availability.
+        Get information about Workflow Execution Service. May include information related (but not limited to) the workflow descriptor formats, versions supported, the WES API versions supported, and information about general the service availability.
       x-swagger-router-controller: ga4gh.wes.server
       operationId: GetServiceInfo
       responses:
@@ -41,20 +40,23 @@ paths:
             $ref: '#/definitions/ErrorResponse'
       tags:
         - WorkflowExecutionService
-  /workflows:
+  /runs:
     get:
       summary: |-
-        List the workflows, this endpoint will list the workflows in order of oldest to newest.
-        There is no guarantee of live updates as the user traverses the pages, the behavior should be
-        decided (and documented) by each implementation.
-        To monitor a given execution, use GetWorkflowStatus or GetWorkflowLog.
+        List the workflow runs.  This should be provided in a stable
+        ordering, however the ordering of this list is implementation
+        dependent.  When paging through the list, the client should
+        not make assumptions about live updates, but should assume the
+        contents of the list reflect the workflow list at the moment
+        that the first page is requested.  To monitor a specific
+        workflow run, use GetRunStatus or GetRunLog.
       x-swagger-router-controller: ga4gh.wes.server
-      operationId: ListWorkflows
+      operationId: ListRuns
       responses:
         '200':
           description: ''
           schema:
-            $ref: '#/definitions/WorkflowListResponse'
+            $ref: '#/definitions/RunListResponse'
         '400':
           description: The request is malformed.
           schema:
@@ -75,7 +77,14 @@ paths:
         - name: page_size
           description: |-
             OPTIONAL
-            Number of workflows to return in a page.
+            The preferred number of workflow runs to return in a page.
+            If not provided, the implementation should use a default page size.
+            The implementation must not return more items
+            than "page_size", but it may return fewer.  Clients should
+            not assume that if fewer than "page_size" items is
+            returned that all items have been returned.  The
+            availability of additional pages is indicated by the value
+            of "next_page_token" in the response.
           in: query
           required: false
           type: integer
@@ -83,16 +92,8 @@ paths:
         - name: page_token
           description: |-
             OPTIONAL
-            Token to use to indicate where to start getting results. If unspecified, returns the first
+            Token to use to indicate where to start getting results. If unspecified, return the first
             page of results.
-          in: query
-          required: false
-          type: string
-        - name: tag_search
-          description: |-
-            OPTIONAL
-            For each key, if the key's value is empty string then match workflows that are tagged with
-            this key regardless of value.
           in: query
           required: false
           type: string
@@ -100,22 +101,46 @@ paths:
         - WorkflowExecutionService
     post:
       summary: |-
-        Run a workflow, this endpoint will allow you to create a new workflow request and
-        retrieve its tracking ID to monitor its progress.  An important assumption in this
-        endpoint is that the workflow_params JSON will include parameterizations along with
-        input and output files.  The latter two may be on S3, Google object storage, local filesystems,
-        etc.  This specification makes no distinction.  However, it is assumed that the submitter
-        is using URLs that this system both understands and can access. For Amazon S3, this could
-        be accomplished by given the credentials associated with a WES service access to a
-        particular bucket.  The details are important for a production system and user on-boarding
-        but outside the scope of this spec.
+        Run a workflow.  This endpoint creates a new workflow run and
+        returns the workflow ID to monitor its progress.
+
+        The request may upload files that are required to execute the
+        workflow identified as `workflow_attachment`.  The parts
+        supplied in `workflow_attachment` may include the primary
+        workflow, tools imported by the workflow, other files
+        referenced by the workflow, or files which are part of the
+        input.  The implementation should stage these files to a
+        temporary directory and execute the workflow from there.
+        These parts must have a Content-Disposition header with a
+        "filename" provided for each part.  Filenames may include
+        subdirectories, but must not include references to parent
+        directories with '..', implementations should guard against
+        maliciously constructed filenames.
+
+        The `workflow_url` is either an absolute URL to a workflow
+        file that is accessible by the WES endpoint, or a relative URL
+        corresponding to one of the files attached using
+        `workflow_attachment`.
+
+        The `workflow_params` JSON object specifies input parameters,
+        such as input files.  The exact format of the JSON object
+        depends on the conventions of the workflow language being
+        used.  Input files should either be absolute URLs, or relative
+        URLs corresponding to files uploaded using
+        `workflow_attachment`.  The WES endpoint must understand and
+        be able to access URLs supplied in the input.  This is
+        implementation specific.
+
+        See documentation for WorkflowRequest for detail about other
+        fields.
+
       x-swagger-router-controller: ga4gh.wes.server
       operationId: RunWorkflow
       responses:
         '200':
           description: ''
           schema:
-            $ref: '#/definitions/WorkflowRunId'
+            $ref: '#/definitions/RunId'
         '400':
           description: The request is malformed.
           schema:
@@ -132,30 +157,60 @@ paths:
           description: An unexpected error occurred.
           schema:
             $ref: '#/definitions/ErrorResponse'
+      consumes:
+         - multipart/form-data
       parameters:
-        - name: body
-          in: body
-          required: true
-          schema:
-            $ref: '#/definitions/WorkflowRequest'
+        - in: formData
+          name: workflow_params
+          type: string
+          format: application/json
+
+        - in: formData
+          name: workflow_type
+          type: string
+
+        - in: formData
+          name: workflow_type_version
+          type: string
+
+        - in: formData
+          name: tags
+          type: string
+          format: application/json
+
+        - in: formData
+          name: workflow_engine_parameters
+          type: string
+          format: application/json
+
+        - in: formData
+          name: workflow_url
+          type: string
+
+        - in: formData
+          name: workflow_attachment
+          type: array
+          items:
+            type: string
+            format: binary
       tags:
         - WorkflowExecutionService
-  '/workflows/{workflow_id}':
+  /runs/{run_id}:
     get:
-      summary: Get detailed info about a running workflow.
+      summary: Get detailed info about a workflow run.
       x-swagger-router-controller: ga4gh.wes.server
-      operationId: GetWorkflowLog
+      operationId: GetRunLog
       responses:
         '200':
           description: ''
           schema:
-            $ref: '#/definitions/WorkflowLog'
+            $ref: '#/definitions/RunLog'
         '401':
           description: The request is unauthorized.
           schema:
             $ref: '#/definitions/ErrorResponse'
         '404':
-          description: The requested Workflow found.
+          description: The requested workflow run not found.
           schema:
             $ref: '#/definitions/ErrorResponse'
         '403':
@@ -167,7 +222,7 @@ paths:
           schema:
             $ref: '#/definitions/ErrorResponse'
       parameters:
-        - name: workflow_id
+        - name: run_id
           in: path
           required: true
           type: string
@@ -176,18 +231,18 @@ paths:
     delete:
       summary: Cancel a running workflow.
       x-swagger-router-controller: ga4gh.wes.server
-      operationId: CancelJob
+      operationId: CancelRun
       responses:
         '200':
           description: ''
           schema:
-            $ref: '#/definitions/WorkflowRunId'
+            $ref: '#/definitions/RunId'
         '401':
           description: The request is unauthorized.
           schema:
             $ref: '#/definitions/ErrorResponse'
         '404':
-          description: The requested Workflow wasn't found.
+          description: The requested workflow run wasn't found.
           schema:
             $ref: '#/definitions/ErrorResponse'
         '403':
@@ -199,28 +254,28 @@ paths:
           schema:
             $ref: '#/definitions/ErrorResponse'
       parameters:
-        - name: workflow_id
+        - name: run_id
           in: path
           required: true
           type: string
       tags:
         - WorkflowExecutionService
-  '/workflows/{workflow_id}/status':
+  /runs/{run_id}/status:
     get:
-      summary: Get quick status info about a running workflow.
+      summary: Get quick status info about a workflow run.
       x-swagger-router-controller: ga4gh.wes.server
-      operationId: GetWorkflowStatus
+      operationId: GetRunStatus
       responses:
         '200':
           description: ''
           schema:
-            $ref: '#/definitions/WorkflowStatus'
+            $ref: '#/definitions/RunStatus'
         '401':
           description: The request is unauthorized.
           schema:
             $ref: '#/definitions/ErrorResponse'
         '404':
-          description: The requested Workflow wasn't found.
+          description: The requested workflow run wasn't found.
           schema:
             $ref: '#/definitions/ErrorResponse'
         '403':
@@ -232,7 +287,7 @@ paths:
           schema:
             $ref: '#/definitions/ErrorResponse'
       parameters:
-        - name: workflow_id
+        - name: run_id
           in: path
           required: true
           type: string
@@ -256,29 +311,39 @@ definitions:
     properties:
       name:
         type: string
-        description: The task or workflow name
+        title: The task or workflow name
       cmd:
         type: array
         items:
           type: string
-        description: The command line that was run
+        title: The command line that was executed
       start_time:
         type: string
-        description: When the command was executed
+        title: When the command started executing, in ISO 8601 format "%Y-%m-%dT%H:%M:%SZ"
       end_time:
         type: string
-        description: When the command completed
+        title: When the command stopped executing (completed, failed, or cancelled), in ISO 8601 format "%Y-%m-%dT%H:%M:%SZ"
       stdout:
         type: string
-        description: Sample of stdout (not guaranteed to be entire log)
+        title: |-
+          A URL to retrieve standard output logs of the workflow run or
+          task.  This URL may change between status requests, or may
+          not be available until the task or workflow has finished
+          execution.  Should be available using the same credentials
+          used to access the WES endpoint.
       stderr:
         type: string
-        description: Sample of stderr (not guaranteed to be entire log)
+        title: |-
+          A URL to retrieve standard error logs of the workflow run or
+          task.  This URL may change between status requests, or may
+          not be available until the task or workflow has finished
+          execution.  Should be available using the same credentials
+          used to access the WES endpoint.
       exit_code:
         type: integer
         format: int32
-        description: Exit code of the program
-    description: Log and other info
+        title: Exit code of the program
+    title: Log and other info
   ServiceInfo:
     type: object
     properties:
@@ -286,7 +351,7 @@ definitions:
         type: object
         additionalProperties:
           $ref: '#/definitions/WorkflowTypeVersion'
-        description: |-
+        title: |-
           A map with keys as the workflow format type name (currently only CWL and WDL are used
           although a service may support others) and value is a workflow_type_version object which
           simply contains an array of one or more version strings
@@ -294,7 +359,7 @@ definitions:
         type: array
         items:
           type: string
-        description: The version(s) of the WES schema supported by this service
+        title: The version(s) of the WES schema supported by this service
       supported_filesystem_protocols:
         type: array
         items:
@@ -307,7 +372,7 @@ definitions:
         type: object
         additionalProperties:
           type: string
-        description: 'The engine(s) used by this WES service, key is engine name e.g. Cromwell and value is version'
+        title: 'The engine(s) used by this WES service, key is engine name e.g. Cromwell and value is version'
       default_workflow_engine_parameters:
         type: array
         items:
@@ -322,18 +387,25 @@ definitions:
           type: integer
           format: int64
         description: |-
-          The system statistics, key is the statistic, value is the count of workflows in that state.
+          The system statistics, key is the statistic, value is the count of runs in that state.
           See the State enum for the possible keys.
       auth_instructions_url:
         type: string
         description: |-
-          A URL that will help a in generating the tokens necessary to run a workflow using this
-          service.
+          A web page URL with information about how to get an
+          authorization token necessary to use a specific endpoint.
+      contact_info:
+        type: string
+        description: |-
+          An email address or web page URL with contact information
+          for the operator of a specific WES endpoint.  Users of the
+          endpoint should use this to report problems or security
+          vulnerabilities.
       tags:
         type: object
         additionalProperties:
           type: string
-        description: |-
+        title: |-
           A key-value map of arbitrary, extended metadata outside the scope of the above but useful
           to report back
     description: |-
@@ -353,7 +425,6 @@ definitions:
       - CANCELED
     default: UNKNOWN
     description: |-
-      Enumeration of states for a given workflow request
       - UNKNOWN: The state of the task is unknown.
 
       This provides a safe default for messages where this field is missing,
@@ -375,88 +446,70 @@ definitions:
       for example an upload failed due to network issues, the worker's ran out
       of disk space, etc.
        - CANCELED: The task was canceled by the user.
-  WorkflowDescription:
+    title: Enumeration of states for a given run request
+  RunListResponse:
     type: object
     properties:
-      workflow_id:
-        type: string
-        description: REQUIRED
-      state:
-        $ref: '#/definitions/State'
-        description: REQUIRED
-    description: 'Small description of workflows, returned by server during listing'
-  WorkflowListResponse:
-    type: object
-    properties:
-      workflows:
+      runs:
         type: array
         items:
-          $ref: '#/definitions/WorkflowDescription'
-        description: A list of workflows that the service has executed or is executing.
+          $ref: '#/definitions/RunStatus'
+        description: A list of workflow runs that the service has executed or is executing.
       next_page_token:
         type: string
         description: |-
-          A token, which when provided in a workflow_list_request, allows one to retrieve the next page
-          of results.
-    description: The service will return a workflow_list_response when receiving a successful workflow_list_request.
-  WorkflowLog:
+          A token which may be supplied as "page_token" in workflow run list request to get the next page
+          of results.  An empty string indicates there are no more items to return.
+    description: The service will return a RunListResponse when receiving a successful RunListRequest.
+  RunLog:
     type: object
     properties:
-      workflow_id:
+      run_id:
         type: string
-        description: workflow ID
+        title: workflow run ID
       request:
-        $ref: '#/definitions/WorkflowRequest'
+        $ref: '#/definitions/RunRequest'
         description: The original request message used to initiate this execution.
       state:
         $ref: '#/definitions/State'
-        description: state
-      workflow_log:
+        title: state
+      run_log:
         $ref: '#/definitions/Log'
-        description: 'the logs, and other key info like timing and exit code, for the overall run of this workflow'
+        title: 'the logs, and other key info like timing and exit code, for the overall run of this workflow'
       task_logs:
         type: array
         items:
           $ref: '#/definitions/Log'
-        description: 'the logs, and other key info like timing and exit code, for each step in the workflow'
+        title: 'the logs, and other key info like timing and exit code, for each step in the workflow run'
       outputs:
         $ref: '#/definitions/WesObject'
-        description: the outputs
-  WorkflowRequest:
+        title: the outputs
+  RunRequest:
     type: object
     properties:
-      workflow_descriptor:
-        type: string
-        description: |-
-          OPTIONAL
-          The workflow CWL or WDL document, must provide either this or workflow_url. By combining
-          this message with a workflow_type_version offered in ServiceInfo, one can initialize
-          CWL, WDL, or a base64 encoded gzip of the required workflow descriptors. When files must be
-          created in this way, the `workflow_url` should be set to the path of the main
-          workflow descriptor.
       workflow_params:
         $ref: '#/definitions/WesObject'
         description: |-
           REQUIRED
-          The workflow parameterization document (typically a JSON file), includes all parameterizations for the workflow
+          The workflow run parameterization document (typically a JSON file), includes all parameterizations for the run
           including input and output file locations.
       workflow_type:
         type: string
-        description: |-
+        title: |-
           REQUIRED
           The workflow descriptor type, must be "CWL" or "WDL" currently (or another alternative supported by this WES instance)
       workflow_type_version:
         type: string
-        description: |-
+        title: |-
           REQUIRED
           The workflow descriptor type version, must be one supported by this WES instance
       tags:
         type: object
         additionalProperties:
           type: string
-        description: |-
+        title: |-
           OPTIONAL
-          A key-value map of arbitrary metadata outside the scope of the workflow_params but useful to track with this workflow request
+          A key-value map of arbitrary metadata outside the scope of the run_params but useful to track with this run request
       workflow_engine_parameters:
         type: object
         additionalProperties:
@@ -468,28 +521,29 @@ definitions:
       workflow_url:
         type: string
         description: |-
-          OPTIONAL
-          The workflow CWL or WDL document, must provide either this or workflow_descriptor. When a base64 encoded gzip of
-          workflow descriptor files is offered, the `workflow_url` should be set to the relative path
-          of the main workflow descriptor.
+          REQUIRED
+          The workflow CWL or WDL document.
+          When workflow attachments files are provided, the `workflow_url` may be a relative path
+          corresponding to one of the attachments.
     description: |-
-      To execute a workflow, send a workflow request including all the details needed to begin downloading
+      To execute a workflow, send a run request including all the details needed to begin downloading
       and executing a given workflow.
-  WorkflowRunId:
+  RunId:
     type: object
     properties:
-      workflow_id:
+      run_id:
         type: string
-        description: workflow ID
-  WorkflowStatus:
+        title: workflow run ID
+  RunStatus:
     type: object
+    required:
+     - run_id
     properties:
-      workflow_id:
+      run_id:
         type: string
-        description: workflow ID
       state:
         $ref: '#/definitions/State'
-        description: state
+    description: 'Small description of a workflow run, returned by server during listing'
   WorkflowTypeVersion:
     type: object
     properties:
@@ -501,7 +555,7 @@ definitions:
           an array of one or more acceptable types for the Workflow Type. For
           example, to send a base64 encoded WDL gzip, one could would offer
           "base64_wdl1.0_gzip". By setting this value, and the path of the main WDL
-          to be executed in the workflow_url to "main.wdl" in the WorkflowRequest.
+          to be executed in the workflow_url to "main.wdl" in the RunRequest.
     description: Available workflow types supported by a given instance of the service.
   WesObject:
     type: object
@@ -519,4 +573,3 @@ definitions:
       status_code:
         type: integer
         description: The integer representing the HTTP status code (e.g. 200, 404).
-
